@@ -1,0 +1,331 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// User and Organization
+model Organization {
+  id          String   @id @default(uuid())
+  name        String
+  slug        String   @unique
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  users       OrganizationUser[]
+  repositories Repository[]
+  policies    Policy[]
+  webhooks    Webhook[]
+  reviews     Review[]
+  analytics   AnalyticsEvent[]
+}
+
+model User {
+  id            String   @id @default(uuid())
+  email         String   @unique
+  name          String
+  avatarUrl     String?
+  githubId      String?  @unique
+  gitlabId      String?  @unique
+  azureId       String?  @unique
+  bitbucketId   String?  @unique
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  organizationMemberships OrganizationUser[]
+  reviews                 Review[]
+  reviewComments          ReviewComment[]
+  apiKeys                 ApiKey[]
+}
+
+model OrganizationUser {
+  id             String       @id @default(uuid())
+  userId         String
+  organizationId String
+  role           OrgRole      @default(DEVELOPER)
+  createdAt      DateTime     @default(now())
+
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, organizationId])
+}
+
+enum OrgRole {
+  ADMIN
+  DEVELOPER
+  VIEWER
+}
+
+// Repository Integration
+model Repository {
+  id             String   @id @default(uuid())
+  organizationId String
+  provider       Provider
+  name           String
+  fullName       String   @unique
+  url            String
+  defaultBranch  String   @default("main")
+  webhookId      String?
+  webhookSecret  String?
+  accessToken    String?  // Encrypted
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  pullRequests   PullRequest[]
+  reviews        Review[]
+  branches       Branch[]
+}
+
+enum Provider {
+  GITHUB
+  GITLAB
+  AZURE
+  BITBUCKET
+}
+
+// Webhooks
+model Webhook {
+  id             String   @id @default(uuid())
+  organizationId String
+  provider       Provider
+  url            String
+  secret         String
+  events         String[] // e.g., ["pull_request", "push"]
+  active         Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+}
+
+// Pull Requests
+model PullRequest {
+  id           String   @id @default(uuid())
+  repositoryId String
+  provider     Provider
+  number       Int
+  title        String
+  description  String?
+  author       String
+  state        PRState  @default(OPEN)
+  baseBranch   String
+  headBranch   String
+  mergeable    Boolean?
+  mergedAt     DateTime?
+  closedAt     DateTime?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  repository   Repository @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+  reviews      Review[]
+  commits      Commit[]
+  comments     PRComment[]
+  checkRuns    CheckRun[]
+
+  @@unique([repositoryId, provider, number])
+}
+
+enum PRState {
+  OPEN
+  MERGED
+  CLOSED
+}
+
+// Commits
+model Commit {
+  id            String   @id @default(uuid())
+  pullRequestId String
+  sha           String
+  message       String
+  author        String
+  authorEmail   String?
+  timestamp     DateTime
+  url           String?
+  createdAt     DateTime @default(now())
+
+  pullRequest   PullRequest @relation(fields: [pullRequestId], references: [id], onDelete: Cascade)
+}
+
+// PR Comments
+model PRComment {
+  id           String   @id @default(uuid())
+  pullRequestId String
+  body         String
+  path         String?
+  line         Int?
+  author       String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  pullRequest  PullRequest @relation(fields: [pullRequestId], references: [id], onDelete: Cascade)
+}
+
+// Code Reviews
+model Review {
+  id             String        @id @default(uuid())
+  organizationId String
+  repositoryId   String
+  pullRequestId  String
+  provider       Provider
+  status         ReviewStatus  @default(PENDING)
+  summary        String?
+  findings       Json?         // Array of findings
+  score          Int?
+  baseBranch     String
+  headBranch     String
+  diffUrl        String?
+  reviewedAt     DateTime?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  organization   Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  repository     Repository    @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+  pullRequest    PullRequest   @relation(fields: [pullRequestId], references: [id], onDelete: Cascade)
+  user           User?         @relation(fields: [reviewedById], references: [id])
+  reviewedById   String?
+  comments       ReviewComment[]
+}
+
+enum ReviewStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+// Review Comments
+model ReviewComment {
+  id        String   @id @default(uuid())
+  reviewId  String
+  userId    String
+  file      String
+  line      Int
+  body      String
+  severity  Severity @default(INFO)
+  createdAt DateTime @default(now())
+
+  review    Review   @relation(fields: [reviewId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+enum Severity {
+  INFO
+  WARNING
+  ERROR
+  CRITICAL
+}
+
+// Branches
+model Branch {
+  id           String   @id @default(uuid())
+  repositoryId String
+  name         String
+  sha          String
+  protected    Boolean  @default(false)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  repository   Repository @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+
+  @@unique([repositoryId, name])
+}
+
+// Policy Engine
+model Policy {
+  id             String   @id @default(uuid())
+  organizationId String
+  name           String
+  description    String?
+  rules          Json     // Policy rules configuration
+  enforcement    Enforcement @default(MANDATORY)
+  enabled        Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+}
+
+enum Enforcement {
+  MANDATORY
+  ADVISORY
+  OPTIONAL
+}
+
+// Merge Gate
+model MergeGate {
+  id           String       @id @default(uuid())
+  pullRequestId String
+  status       GateStatus   @default(PENDING)
+  checks       Json         // Array of check results
+  passedAt     DateTime?
+  failedAt     DateTime?
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  pullRequest  PullRequest  @relation(fields: [pullRequestId], references: [id], onDelete: Cascade)
+}
+
+enum GateStatus {
+  PENDING
+  RUNNING
+  PASSED
+  FAILED
+}
+
+// Check Runs (CI/CD status)
+model CheckRun {
+  id           String   @id @default(uuid())
+  pullRequestId String
+  name         String
+  status       String
+  conclusion   String?
+  url          String?
+  startedAt    DateTime?
+  completedAt  DateTime?
+  createdAt    DateTime @default(now())
+
+  pullRequest  PullRequest @relation(fields: [pullRequestId], references: [id], onDelete: Cascade)
+}
+
+// API Keys
+model ApiKey {
+  id             String   @id @default(uuid())
+  userId         String
+  name           String
+  key            String   @unique
+  lastUsedAt     DateTime?
+  expiresAt      DateTime?
+  createdAt      DateTime @default(now())
+
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// Analytics
+model AnalyticsEvent {
+  id             String   @id @default(uuid())
+  organizationId String
+  eventType      String
+  eventData      Json
+  timestamp      DateTime @default(now())
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+}
+
+// Learning Engine - Review Patterns
+model ReviewPattern {
+  id          String   @id @default(uuid())
+  repositoryId String?
+  patternType String
+  pattern     Json     // Encoded pattern
+  frequency   Int      @default(1)
+  lastSeenAt  DateTime @default(now())
+  createdAt   DateTime @default(now())
+}

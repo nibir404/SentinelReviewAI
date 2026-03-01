@@ -1,0 +1,25 @@
+{
+  "name": "@sentinel/ai-review-engine",
+  "version": "1.0.0",
+  "description": "AI-powered code review engine for SentinelReviewAI",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "ts-node src/index.ts"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "amqplib": "^0.10.3",
+    "axios": "^1.6.0",
+    "dotenv": "^16.3.1",
+    "winston": "^3.11.0",
+    "openai": "^4.20.0"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.21",
+    "@types/amqplib": "^0.10.4",
+    "@types/node": "^20.10.0",
+    "typescript": "^5.3.2"
+  }
+}

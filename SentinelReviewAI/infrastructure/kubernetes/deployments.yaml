@@ -1,0 +1,566 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres
+  namespace: sentinel-review-ai
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres
+  template:
+    metadata:
+      labels:
+        app: postgres
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:14-alpine
+          ports:
+            - containerPort: 5432
+          env:
+            - name: POSTGRES_USER
+              value: "sentinel"
+            - name: POSTGRES_PASSWORD
+              value: "sentinel_password"
+            - name: POSTGRES_DB
+              value: "sentinel_review_ai"
+          volumeMounts:
+            - name: postgres-storage
+              mountPath: /var/lib/postgresql/data
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "250m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+      volumes:
+        - name: postgres-storage
+          persistentVolumeClaim:
+            claimName: postgres-pvc
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis
+  namespace: sentinel-review-ai
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: redis
+  template:
+    metadata:
+      labels:
+        app: redis
+    spec:
+      containers:
+        - name: redis
+          image: redis:7-alpine
+          ports:
+            - containerPort: 6379
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "100m"
+            limits:
+              memory: "256Mi"
+              cpu: "200m"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api-gateway
+  namespace: sentinel-review-ai
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: api-gateway
+  template:
+    metadata:
+      labels:
+        app: api-gateway
+    spec:
+      containers:
+        - name: api-gateway
+          image: sentinelreviewai/api-gateway:latest
+          ports:
+            - containerPort: 4000
+          env:
+            - name: NODE_ENV
+              value: "production"
+            - name: PORT
+              value: "4000"
+            - name: DATABASE_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: sentinel-config
+                  key: DATABASE_URL
+            - name: REDIS_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: sentinel-config
+                  key: REDIS_URL
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: sentinel-secrets
+                  key: JWT_SECRET
+            - name: API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: sentinel-secrets
+                  key: API_KEY
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "250m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 4000
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 4000
+            initialDelaySeconds: 10
+            periodSeconds: 5
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: git-integration
+  namespace: sentinel-review-ai
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: git-integration
+  template:
+    metadata:
+      labels:
+        app: git-integration
+    spec:
+      containers:
+        - name: git-integration
+          image: sentinelreviewai/git-integration:latest
+          ports:
+            - containerPort: 4001
+          env:
+            - name: NODE_ENV
+              value: "production"
+            - name: PORT
+              value: "4001"
+            - name: DATABASE_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: sentinel-config
+                  key: DATABASE_URL
+            - name: REDIS_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: sentinel-config
+                  key: REDIS_URL
+            - name: GITHUB_WEBHOOK_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: sentinel-secrets
+                  key: GITHUB_WEBHOOK_SECRET
+            - name: GITLAB_WEBHOOK_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: sentinel-secrets
+                  key: GITLAB_WEBHOOK_SECRET
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "250m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ai-review-engine
+  namespace: sentinel-review-ai
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: ai-review-engine
+  template:
+    metadata:
+      labels:
+        app: ai-review-engine
+    spec:
+      containers:
+        - name: ai-review-engine
+          image: sentinelreviewai/ai-review-engine:latest
+          ports:
+            - containerPort: 4002
+          env:
+            - name: NODE_ENV
+              value: "production"
+            - name: PORT
+              value: "4002"
+            - name: DATABASE_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: sentinel-config
+                  key: DATABASE_URL
+            - name: REDIS_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: sentinel-config
+                  key: REDIS_URL
+            - name: OPENAI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: sentinel-secrets
+                  key: OPENAI_API_KEY
+            - name: AI_MODEL
+              value: "gpt-4"
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "500m"
+            limits:
+              memory: "1Gi"
+              cpu: "1000m"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: context-engine
+  namespace: sentinel-review-ai
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: context-engine
+  template:
+    metadata:
+      labels:
+        app: context-engine
+    spec:
+      containers:
+        - name: context-engine
+          image: sentinelreviewai/context-engine:latest
+          ports:
+            - containerPort: 4003
+          env:
+            - name: NODE_ENV
+              value: "production"
+            - name: PORT
+              value: "4003"
+            - name: DATABASE_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: sentinel-config
+                  key: DATABASE_URL
+            - name: REDIS_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: sentinel-config
+                  key: REDIS_URL
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "250m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: policy-engine
+  namespace: sentinel-review-ai
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: policy-engine
+  template:
+    metadata:
+      labels:
+        app: policy-engine
+    spec:
+      containers:
+        - name: policy-engine
+          image: sentinelreviewai/policy-engine:latest
+          ports:
+            - containerPort: 4004
+          env:
+            - name: NODE_ENV
+              value: "production"
+            - name: PORT
+              value: "4004"
+            - name: DATABASE_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: sentinel-config
+                  key: DATABASE_URL
+            - name: REDIS_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: sentinel-config
+                  key: REDIS_URL
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "250m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: webhook-listener
+  namespace: sentinel-review-ai
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: webhook-listener
+  template:
+    metadata:
+      labels:
+        app: webhook-listener
+    spec:
+      containers:
+        - name: webhook-listener
+          image: sentinelreviewai/webhook-listener:latest
+          ports:
+            - containerPort: 4005
+          env:
+            - name: NODE_ENV
+              value: "production"
+            - name: PORT
+              value: "4005"
+            - name: DATABASE_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: sentinel-config
+                  key: DATABASE_URL
+            - name: REDIS_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: sentinel-config
+                  key: REDIS_URL
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "100m"
+            limits:
+              memory: "256Mi"
+              cpu: "200m"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: analytics
+  namespace: sentinel-review-ai
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: analytics
+  template:
+    metadata:
+      labels:
+        app: analytics
+    spec:
+      containers:
+        - name: analytics
+          image: sentinelreviewai/analytics:latest
+          ports:
+            - containerPort: 4006
+          env:
+            - name: NODE_ENV
+              value: "production"
+            - name: PORT
+              value: "4006"
+            - name: DATABASE_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: sentinel-config
+                  key: DATABASE_URL
+            - name: REDIS_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: sentinel-config
+                  key: REDIS_URL
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "250m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: learning-engine
+  namespace: sentinel-review-ai
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: learning-engine
+  template:
+    metadata:
+      labels:
+        app: learning-engine
+    spec:
+      containers:
+        - name: learning-engine
+          image: sentinelreviewai/learning-engine:latest
+          ports:
+            - containerPort: 4007
+          env:
+            - name: NODE_ENV
+              value: "production"
+            - name: PORT
+              value: "4007"
+            - name: DATABASE_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: sentinel-config
+                  key: DATABASE_URL
+            - name: REDIS_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: sentinel-config
+                  key: REDIS_URL
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "500m"
+            limits:
+              memory: "1Gi"
+              cpu: "1000m"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: merge-gate
+  namespace: sentinel-review-ai
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: merge-gate
+  template:
+    metadata:
+      labels:
+        app: merge-gate
+    spec:
+      containers:
+        - name: merge-gate
+          image: sentinelreviewai/merge-gate:latest
+          ports:
+            - containerPort: 4008
+          env:
+            - name: NODE_ENV
+              value: "production"
+            - name: PORT
+              value: "4008"
+            - name: DATABASE_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: sentinel-config
+                  key: DATABASE_URL
+            - name: REDIS_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: sentinel-config
+                  key: REDIS_URL
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "100m"
+            limits:
+              memory: "256Mi"
+              cpu: "200m"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend
+  namespace: sentinel-review-ai
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: frontend
+  template:
+    metadata:
+      labels:
+        app: frontend
+    spec:
+      containers:
+        - name: frontend
+          image: sentinelreviewai/frontend:latest
+          ports:
+            - containerPort: 3000
+          env:
+            - name: REACT_APP_API_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: sentinel-config
+                  key: API_URL
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "100m"
+            limits:
+              memory: "256Mi"
+              cpu: "200m"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nginx
+  namespace: sentinel-review-ai
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: nginx
+  template:
+    metadata:
+      labels:
+        app: nginx
+    spec:
+      containers:
+        - name: nginx
+          image: nginx:alpine
+          ports:
+            - containerPort: 80
+            - containerPort: 443
+          volumeMounts:
+            - name: nginx-config
+              mountPath: /etc/nginx/nginx.conf
+              subPath: nginx.conf
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "100m"
+            limits:
+              memory: "256Mi"
+              cpu: "200m"
+      volumes:
+        - name: nginx-config
+          configMap:
+            name: nginx-config
